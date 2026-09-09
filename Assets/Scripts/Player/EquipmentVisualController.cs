@@ -109,7 +109,6 @@ namespace IsometricShooter.Player
                 if (!awaitingWorldPickup)
                 {
                     awaitingWorldPickup = true;
-                    Debug.Log("[EVC] awaitingWorldPickup item=" + (item != null ? item.itemName : "null"));
                     Invoke(nameof(RetryItemState), 0.1f);
                     return;
                 }
@@ -162,10 +161,6 @@ namespace IsometricShooter.Player
                         activeModel.transform.localPosition = weaponData.idlePosition;
                         activeModel.transform.localRotation = Quaternion.Euler(weaponData.idleRotation);
                     }
-                    else
-                    {
-                        Debug.Log("[EVC] pickup weapon branch, weaponMount NULL item=" + item.itemName);
-                    }
 
                     weaponPoseBlend = 0f;
                 }
@@ -215,10 +210,6 @@ namespace IsometricShooter.Player
                         activeModel.transform.localPosition = meleeData.handPositionOffset;
                         activeModel.transform.localRotation = Quaternion.Euler(meleeData.handRotationOffset);
                     }
-                }
-                else
-                {
-                    Debug.Log("[EVC] clone branch skipped item=" + (item != null ? item.itemName : "null") + " prefab=" + (prefab != null) + " mount=" + (weaponMount != null));
                 }
             }
 
