@@ -1,12 +1,16 @@
 using UnityEngine;
 using Mirror;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using IsometricShooter.Player;
 
 namespace IsometricShooter.Core
 {
+    /// <summary>
+    /// Orchestrates the player's equipped loadout: input routing, network commands
+    /// and state sync. All behaviour logic is delegated to focused collaborators
+    /// (ammo store, reload, melee, drop, pickup registry).
+    /// </summary>
     public class WeaponController : NetworkBehaviour
     {
         [Header("References")]
@@ -38,19 +42,16 @@ namespace IsometricShooter.Core
         private ItemData currentItemData;
         private float nextFireTime;
         private float nextMeleeTime;
-        private Coroutine reloadCoroutine;
 
-        private readonly List<Vector3> meleeHitContacts = new List<Vector3>();
-        private Vector3 meleeHitOrigin;
-        private float meleeHitRadius;
-        private bool meleeHitWindowActive;
-
-        [NonSerialized] private readonly Dictionary<string, AmmoState> weaponAmmoStates = new Dictionary<string, AmmoState>();
-        private readonly Dictionary<string, ItemPickup> slotPickups = new Dictionary<string, ItemPickup>();
+        private readonly WeaponAmmoStore ammoStore = new WeaponAmmoStore();
+        private readonly WeaponPickupRegistry pickupRegistry = new WeaponPickupRegistry();
+        private readonly ReloadRuntime reloadRuntime = new ReloadRuntime();
+        private readonly MeleeExecution meleeExecution = new MeleeExecution();
 
         public event Action OnItemChanged;
         public event Action<int, int> OnAmmoUpdated;
         public event Action<bool> OnReloadStateChanged;
+        public event Action OnMeleeAttack;
 
         public ItemData CurrentItem => currentItemData;
         public WeaponData CurrentWeapon => currentItemData as WeaponData;
@@ -80,17 +81,25 @@ namespace IsometricShooter.Core
 
         private void Update()
         {
+            if (isServer)
+            {
+                TickServer();
+            }
+
             if (!isLocalPlayer) return;
             if (Health.IsDead(gameObject)) return;
 
             if (CurrentMelee != null)
             {
-                UpdateMelee();
+                if (Input.GetMouseButton(0))
+                {
+                    TryMeleeAttack();
+                }
                 return;
             }
 
-            if (CurrentWeapon == null) return;
-            if (isReloading) return;
+            if (CurrentWeapon == null || isReloading)
+                return;
 
             if (Input.GetMouseButton(0))
             {
@@ -103,23 +112,14 @@ namespace IsometricShooter.Core
             }
         }
 
-        private void UpdateMelee()
+        private void TickServer()
         {
-            if (Input.GetMouseButton(0))
+            if (reloadRuntime.IsActive && reloadRuntime.Tick())
             {
-                TryMeleeAttack();
+                ApplyCompletedReload();
             }
-        }
 
-        private void TryMeleeAttack()
-        {
-            MeleeItemData data = CurrentMelee;
-            if (data == null) return;
-            if (Time.time < nextMeleeTime) return;
-
-            nextMeleeTime = Time.time + data.cooldown;
-
-            CmdMeleeAttack();
+            meleeExecution.Tick();
         }
 
         private void TryFire()
@@ -142,8 +142,7 @@ namespace IsometricShooter.Core
             WeaponData data = CurrentWeapon;
             if (data == null) return;
             if (isReloading) return;
-            if (currentAmmo >= data.magazineSize) return;
-            if (reserveAmmo <= 0) return;
+            if (!ReloadCalculator.CanReload(currentAmmo, reserveAmmo, data.magazineSize)) return;
 
             CmdStartReload();
         }
@@ -151,32 +150,39 @@ namespace IsometricShooter.Core
         [Command(requiresAuthority = true)]
         private void CmdStartReload()
         {
+            WeaponData data = CurrentWeapon;
+            if (data == null) return;
             if (isReloading) return;
-            if (CurrentWeapon == null) return;
-            if (currentAmmo >= CurrentWeapon.magazineSize) return;
-            if (reserveAmmo <= 0) return;
+            if (!ReloadCalculator.CanReload(currentAmmo, reserveAmmo, data.magazineSize)) return;
 
             isReloading = true;
-            StartCoroutine(ReloadRoutine());
+            reloadRuntime.Begin(data.reloadTime);
         }
 
-        private IEnumerator ReloadRoutine()
+        private void ApplyCompletedReload()
         {
             WeaponData data = CurrentWeapon;
             if (data == null)
             {
                 isReloading = false;
-                yield break;
+                return;
             }
 
-            yield return new WaitForSeconds(data.reloadTime);
-
-            int needed = data.magazineSize - currentAmmo;
-            int toLoad = Mathf.Min(needed, reserveAmmo);
-
-            currentAmmo += toLoad;
-            reserveAmmo -= toLoad;
+            ReloadCalculator.ReloadPlan plan = ReloadCalculator.Resolve(currentAmmo, reserveAmmo, data.magazineSize);
+            currentAmmo = plan.magazineAmmo;
+            reserveAmmo = plan.reserveAmmo;
             isReloading = false;
+        }
+
+        private void TryMeleeAttack()
+        {
+            MeleeItemData data = CurrentMelee;
+            if (data == null) return;
+            if (Time.time < nextMeleeTime) return;
+
+            nextMeleeTime = Time.time + data.cooldown;
+
+            CmdMeleeAttack();
         }
 
         [Command(requiresAuthority = true)]
@@ -189,6 +195,19 @@ namespace IsometricShooter.Core
         public void CmdDropItem(string uniqueId)
         {
             ServerDropItem(uniqueId);
+        }
+
+        [Command(requiresAuthority = true)]
+        private void CmdMeleeAttack()
+        {
+            if (Health.IsDead(gameObject)) return;
+
+            MeleeItemData data = CurrentMelee;
+            if (data == null) return;
+
+            RpcPlayMeleeSwing();
+
+            meleeExecution.Begin(data, transform, GetWeaponRootForMelee(), GetMeleeHitPoint(), connectionToClient);
         }
 
         [Server]
@@ -204,46 +223,40 @@ namespace IsometricShooter.Core
             if (data == null) return;
 
             int amount = slot.amount;
+            bool isEquippedDrop = string.Equals(equippedItemId, uniqueId);
 
             int savedAmmo = -1;
             int savedReserveAmmo = -1;
             if (data is WeaponData)
             {
-                if (string.Equals(equippedItemId, uniqueId))
+                if (isEquippedDrop)
                 {
                     savedAmmo = currentAmmo;
                     savedReserveAmmo = reserveAmmo;
                 }
-                else if (weaponAmmoStates.TryGetValue(uniqueId, out AmmoState storedState))
+                else if (ammoStore.TryRestore(uniqueId, out savedAmmo, out savedReserveAmmo))
                 {
-                    savedAmmo = storedState.current;
-                    savedReserveAmmo = storedState.reserve;
+                    // Ammo recovered from the per-item store.
                 }
             }
 
-            bool isEquippedDrop = string.Equals(equippedItemId, uniqueId);
             ItemPickup worldPickup = isEquippedDrop ? equippedWorldPickup : null;
+            if (worldPickup == null)
+            {
+                pickupRegistry.TryGet(uniqueId, out worldPickup);
+            }
 
             if (isEquippedDrop)
             {
                 Unequip();
             }
 
-            if (worldPickup == null)
-            {
-                slotPickups.TryGetValue(uniqueId, out worldPickup);
-            }
-            slotPickups.Remove(uniqueId);
-
-            weaponAmmoStates.Remove(uniqueId);
+            pickupRegistry.Remove(uniqueId);
+            ammoStore.Remove(uniqueId);
             inventory.RemoveSlot(uniqueId, amount);
 
-            Vector3 origin = transform.position;
-            origin.y += dropHeight;
-            Vector3 forward = transform.forward;
-            Vector3 spawnPos = origin + (forward * dropForwardDistance);
-
-            Vector3 velocity = forward * 2f + Vector3.up * MathsDropSpeed();
+            Vector3 spawnPos = WeaponDropCalculator.ComputeSpawnPosition(transform, dropHeight, dropForwardDistance);
+            Vector3 velocity = WeaponDropCalculator.ComputeDropVelocity(transform, dropThrowHeight);
 
             if (worldPickup != null)
             {
@@ -272,22 +285,14 @@ namespace IsometricShooter.Core
                 ItemPickup onModel = modelPrefab.GetComponent<ItemPickup>();
                 if (onModel != null)
                 {
-                    ItemPickup pickup = Instantiate(onModel, spawnPos, Quaternion.identity);
-                    return pickup;
+                    return Instantiate(onModel, spawnPos, Quaternion.identity);
                 }
             }
 
             if (dropPickupPrefab == null)
                 return null;
 
-            ItemPickup dropPickup = Instantiate(dropPickupPrefab, spawnPos, Quaternion.identity);
-            return dropPickup;
-        }
-
-        private float MathsDropSpeed()
-        {
-            float t = Mathf.Sqrt((2f * dropThrowHeight) / 9.81f);
-            return 9.81f * t;
+            return Instantiate(dropPickupPrefab, spawnPos, Quaternion.identity);
         }
 
         [Server]
@@ -295,13 +300,7 @@ namespace IsometricShooter.Core
         {
             if (inventory == null) return;
 
-            if (string.Equals(equippedItemId, uniqueId))
-            {
-                Unequip();
-                return;
-            }
-
-            if (string.IsNullOrEmpty(uniqueId))
+            if (string.IsNullOrEmpty(uniqueId) || string.Equals(equippedItemId, uniqueId))
             {
                 Unequip();
                 return;
@@ -330,22 +329,24 @@ namespace IsometricShooter.Core
 
             if (!string.IsNullOrEmpty(equippedItemId))
             {
-                weaponAmmoStates[equippedItemId] = new AmmoState { current = currentAmmo, reserve = reserveAmmo };
+                ammoStore.Save(equippedItemId, currentAmmo, reserveAmmo);
             }
 
             equippedItemId = uniqueId;
             currentItemData = data;
 
-            AmmoState state;
-            if (data is WeaponData weaponData && weaponAmmoStates.TryGetValue(uniqueId, out state))
+            if (data is WeaponData weapon)
             {
-                currentAmmo = state.current;
-                reserveAmmo = state.reserve;
-            }
-            else if (data is WeaponData weaponData2)
-            {
-                currentAmmo = weaponData2.magazineSize;
-                reserveAmmo = weaponData2.maxReserveAmmo;
+                if (ammoStore.TryRestore(uniqueId, out int savedMagazine, out int savedReserve))
+                {
+                    currentAmmo = savedMagazine;
+                    reserveAmmo = savedReserve;
+                }
+                else
+                {
+                    currentAmmo = weapon.magazineSize;
+                    reserveAmmo = weapon.maxReserveAmmo;
+                }
             }
             else
             {
@@ -354,14 +355,9 @@ namespace IsometricShooter.Core
             }
 
             isReloading = false;
+            reloadRuntime.Cancel();
 
-            if (reloadCoroutine != null)
-            {
-                StopCoroutine(reloadCoroutine);
-                reloadCoroutine = null;
-            }
-
-            if (slotPickups.TryGetValue(uniqueId, out ItemPickup targetPickup) && targetPickup != null)
+            if (pickupRegistry.TryGet(uniqueId, out ItemPickup targetPickup))
             {
                 equippedWorldPickup = targetPickup;
                 targetPickup.EquipTo(GetEquipMount());
@@ -383,7 +379,7 @@ namespace IsometricShooter.Core
             if (string.IsNullOrEmpty(equippedItemId))
                 return;
 
-            weaponAmmoStates[equippedItemId] = new AmmoState { current = currentAmmo, reserve = reserveAmmo };
+            ammoStore.Save(equippedItemId, currentAmmo, reserveAmmo);
 
             HideCurrentWorldPickup();
 
@@ -392,155 +388,8 @@ namespace IsometricShooter.Core
             currentAmmo = 0;
             reserveAmmo = 0;
             isReloading = false;
-
-            if (reloadCoroutine != null)
-            {
-                StopCoroutine(reloadCoroutine);
-                reloadCoroutine = null;
-            }
+            reloadRuntime.Cancel();
         }
-
-        [Command(requiresAuthority = true)]
-        private void CmdMeleeAttack()
-        {
-            if (Health.IsDead(gameObject)) return;
-
-            MeleeItemData data = CurrentMelee;
-            if (data == null) return;
-
-            RpcPlayMeleeSwing();
-
-            NetworkConnectionToClient shooterConnection = connectionToClient;
-            StartCoroutine(SwingDamageRoutine(data, shooterConnection));
-        }
-
-        private IEnumerator SwingDamageRoutine(MeleeItemData data, NetworkConnectionToClient shooterConnection)
-        {
-            float startDelay = Mathf.Max(0f, data.hitStartTime);
-            float endDelay = Mathf.Max(startDelay + 0.01f, data.hitEndTime);
-
-            yield return new WaitForSeconds(startDelay);
-
-            float endTime = Time.time + (endDelay - startDelay);
-
-            float radius = Mathf.Max(0.05f, data.hitRadius);
-            HashSet<IDamageable> hitTargets = new HashSet<IDamageable>();
-
-            Transform weaponRoot = GetWeaponRootForMelee();
-            Transform meleeHitPoint = GetMeleeHitPoint();
-
-            meleeHitOrigin = transform.position;
-            meleeHitRadius = radius;
-            meleeHitContacts.Clear();
-            meleeHitWindowActive = true;
-
-            while (Time.time < endTime)
-            {
-                Vector3 hitOrigin;
-
-                if (meleeHitPoint != null)
-                {
-                    hitOrigin = meleeHitPoint.position;
-                }
-                else if (weaponRoot != null)
-                {
-                    hitOrigin = weaponRoot.TransformPoint(data.hitPointOffset);
-                }
-                else
-                {
-                    hitOrigin = transform.position + transform.forward * (data.range * 0.5f);
-                }
-
-                meleeHitOrigin = hitOrigin;
-
-                Collider[] hits = Physics.OverlapSphere(hitOrigin, radius, ~0, QueryTriggerInteraction.Ignore);
-
-                foreach (Collider hit in hits)
-                {
-                    if (hit.transform.root == transform.root)
-                        continue;
-
-                    IDamageable damageable = hit.GetComponentInParent<IDamageable>();
-                    if (damageable == null)
-                        continue;
-
-                    if (!hitTargets.Add(damageable))
-                        continue;
-
-                    Vector3 toTarget = hit.transform.position - hitOrigin;
-                    Vector3 direction = toTarget.sqrMagnitude > 0.0001f ? toTarget.normalized : transform.forward;
-                    Vector3 contactPoint = hit.ClosestPoint(hitOrigin);
-
-                    meleeHitContacts.Add(contactPoint);
-
-                    HitboxPart hitbox = ResolveHitbox(hit);
-                    if (hitbox != null)
-                    {
-                        hitbox.OnHit(data.damage, direction, contactPoint, data.impactForce, shooterConnection);
-                    }
-                    else
-                    {
-                        damageable.TakeDamage(data.damage, direction, contactPoint, data.impactForce);
-                    }
-                }
-
-                yield return new WaitForEndOfFrame();
-            }
-
-            meleeHitWindowActive = false;
-        }
-
-        private HitboxPart ResolveHitbox(Collider hitCollider)
-        {
-            if (hitCollider == null)
-                return null;
-
-            HitboxPart hitbox = hitCollider.GetComponent<HitboxPart>() ?? hitCollider.GetComponentInParent<HitboxPart>();
-
-            if (hitbox == null)
-            {
-                HitboxPart[] childHitboxes = hitCollider.GetComponentsInChildren<HitboxPart>();
-
-                float minDistance = float.MaxValue;
-                foreach (HitboxPart hb in childHitboxes)
-                {
-                    float dist = Vector3.Distance(hitCollider.ClosestPoint(transform.position), hb.transform.position);
-                    if (dist < minDistance)
-                    {
-                        minDistance = dist;
-                        hitbox = hb;
-                    }
-                }
-            }
-
-            return hitbox;
-        }
-
-        private Transform GetMeleeHitPoint()
-        {
-            MeleeReferancer referancer = GetComponentInChildren<MeleeReferancer>(true);
-            if (referancer != null && referancer.HitPoint != null)
-                return referancer.HitPoint;
-
-            return null;
-        }
-
-        private Transform GetWeaponRootForMelee()
-        {
-            EquipmentVisualController equipVisual = GetComponent<EquipmentVisualController>();
-            if (equipVisual != null && equipVisual.ActiveEquipModel != null)
-                return equipVisual.ActiveEquipModel.transform;
-
-            return null;
-        }
-
-        [ClientRpc]
-        private void RpcPlayMeleeSwing()
-        {
-            OnMeleeAttack?.Invoke();
-        }
-
-        public event Action OnMeleeAttack;
 
         [Server]
         public void ConsumeServerAmmo()
@@ -554,15 +403,16 @@ namespace IsometricShooter.Core
         [Server]
         public void ServerFireFromAI()
         {
-            if (CurrentWeapon == null) return;
+            WeaponData data = CurrentWeapon;
+            if (data == null) return;
             if (currentAmmo <= 0) return;
             if (Time.time < nextFireTime) return;
 
-            nextFireTime = Time.time + CurrentWeapon.fireRate;
+            nextFireTime = Time.time + data.fireRate;
 
             if (shootingController != null)
             {
-                shootingController.ServerPerformFire(CurrentWeapon);
+                shootingController.ServerPerformFire(data);
             }
 
             if (currentAmmo > 0)
@@ -590,38 +440,38 @@ namespace IsometricShooter.Core
             if (!(data is WeaponData || data is MeleeItemData)) return false;
 
             string uniqueId;
-            if (inventory != null && inventory.TryAddItem(data.itemId, amount, out uniqueId))
+            if (inventory == null || !inventory.TryAddItem(data.itemId, amount, out uniqueId))
             {
-                if (data is WeaponData && savedAmmo >= 0)
-                {
-                    weaponAmmoStates[uniqueId] = new AmmoState { current = savedAmmo, reserve = savedReserveAmmo };
-                }
-
-                if (string.IsNullOrEmpty(equippedItemId))
-                {
-                    EquipSlot(uniqueId);
-                }
-
-                if (worldPickup != null)
-                {
-                    slotPickups[uniqueId] = worldPickup;
-                    worldPickup.Initialize(data, amount, savedAmmo, savedReserveAmmo);
-
-                    if (string.Equals(equippedItemId, uniqueId))
-                    {
-                        equippedWorldPickup = worldPickup;
-                        worldPickup.EquipTo(GetEquipMount());
-                    }
-                    else
-                    {
-                        worldPickup.HideFromHand();
-                    }
-                }
-
-                return true;
+                return false;
             }
 
-            return false;
+            if (data is WeaponData && savedAmmo >= 0)
+            {
+                ammoStore.Save(uniqueId, savedAmmo, savedReserveAmmo);
+            }
+
+            if (string.IsNullOrEmpty(equippedItemId))
+            {
+                EquipSlot(uniqueId);
+            }
+
+            if (worldPickup != null)
+            {
+                pickupRegistry.Register(uniqueId, worldPickup);
+                worldPickup.Initialize(data, amount, savedAmmo, savedReserveAmmo);
+
+                if (string.Equals(equippedItemId, uniqueId))
+                {
+                    equippedWorldPickup = worldPickup;
+                    worldPickup.EquipTo(GetEquipMount());
+                }
+                else
+                {
+                    worldPickup.HideFromHand();
+                }
+            }
+
+            return true;
         }
 
         private Transform GetEquipMount()
@@ -638,6 +488,30 @@ namespace IsometricShooter.Core
                 mount = transform;
 
             return mount;
+        }
+
+        private Transform GetMeleeHitPoint()
+        {
+            MeleeReferancer referancer = GetComponentInChildren<MeleeReferancer>(true);
+            if (referancer != null && referancer.HitPoint != null)
+                return referancer.HitPoint;
+
+            return null;
+        }
+
+        private Transform GetWeaponRootForMelee()
+        {
+            EquipmentVisualController equipVisual = GetComponent<EquipmentVisualController>();
+            if (equipVisual != null && equipVisual.ActiveEquipModel != null)
+                return equipVisual.ActiveEquipModel.transform;
+
+            return null;
+        }
+
+        [ClientRpc]
+        private void RpcPlayMeleeSwing()
+        {
+            OnMeleeAttack?.Invoke();
         }
 
         private void OnWorldPickupChanged(ItemPickup oldPickup, ItemPickup newPickup)
@@ -689,28 +563,25 @@ namespace IsometricShooter.Core
 
         private void OnDrawGizmos()
         {
-            if (meleeHitWindowActive)
+            if (meleeExecution != null && meleeExecution.ShowHitWindow)
             {
                 Gizmos.color = new Color(1f, 0.3f, 0.1f, 0.9f);
-                Gizmos.DrawWireSphere(meleeHitOrigin, meleeHitRadius);
+                Gizmos.DrawWireSphere(meleeExecution.HitOrigin, meleeExecution.HitRadius);
 
                 Gizmos.color = new Color(1f, 0.9f, 0.2f, 1f);
-                Gizmos.DrawWireCube(meleeHitOrigin, Vector3.one * meleeHitRadius * 0.5f);
+                Gizmos.DrawWireCube(meleeExecution.HitOrigin, Vector3.one * meleeExecution.HitRadius * 0.5f);
             }
 
-            for (int i = 0; i < meleeHitContacts.Count; i++)
+            if (meleeExecution == null)
+                return;
+
+            IReadOnlyList<Vector3> contacts = meleeExecution.HitContacts;
+            for (int i = 0; i < contacts.Count; i++)
             {
                 Gizmos.color = new Color(0.2f, 1f, 0.3f, 1f);
-                Gizmos.DrawSphere(meleeHitContacts[i], 0.08f);
-                Gizmos.DrawLine(meleeHitOrigin, meleeHitContacts[i]);
+                Gizmos.DrawSphere(contacts[i], 0.08f);
+                Gizmos.DrawLine(meleeExecution.HitOrigin, contacts[i]);
             }
         }
-    }
-
-    [Serializable]
-    public struct AmmoState
-    {
-        public int current;
-        public int reserve;
     }
 }
