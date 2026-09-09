@@ -1,5 +1,7 @@
 using UnityEngine;
 using UnityEditor;
+using System;
+using IsometricShooter.Core;
 
 namespace IsometricShooter.Editor
 {
@@ -17,15 +19,28 @@ namespace IsometricShooter.Editor
         {
             failures = 0;
 
-            TestReloadCalculator();
-            TestDropCalculator();
-            TestAmmoStore();
-            TestPickupRegistry();
-            TestReloadRuntimeCancel();
+            RunSafely(nameof(TestReloadCalculator), TestReloadCalculator);
+            RunSafely(nameof(TestDropCalculator), TestDropCalculator);
+            RunSafely(nameof(TestAmmoStore), TestAmmoStore);
+            RunSafely(nameof(TestPickupRegistry), TestPickupRegistry);
+            RunSafely(nameof(TestReloadRuntimeCancel), TestReloadRuntimeCancel);
 
             Debug.Log(failures == 0
                 ? "[SelfCheck] ALL PASSED"
                 : "[SelfCheck] " + failures + " check(s) FAILED");
+        }
+
+        private static void RunSafely(string name, Action test)
+        {
+            try
+            {
+                test();
+            }
+            catch (Exception e)
+            {
+                failures++;
+                Debug.LogError("[SelfCheck] CRASHED: " + name + " :: " + e.Message);
+            }
         }
 
         private static void Check(string name, bool condition, string detail = "")
