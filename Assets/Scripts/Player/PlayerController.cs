@@ -18,6 +18,9 @@ namespace IsometricShooter.Player
         [Header("Rotation Settings")]
         [SerializeField] private float rotationSpeed = 20f;
 
+        [Header("Server Validation")]
+        [SerializeField] private float maxSpeedServer = 9f;
+
         [Header("References")]
         [SerializeField] private Camera playerCamera;
         [SerializeField] private LayerMask groundLayer;
@@ -27,13 +30,18 @@ namespace IsometricShooter.Player
         private Vector3 moveDirection;
         private float currentSpeed;
         private Quaternion targetRotation;
+        private Vector3 lastSentSyncPosition;
+        private float lastSentSyncRotY;
 
         private const float GroundRayDistance = 1000f;
         private const float MinRotationSqrMagnitude = 0.05f;
         private const float MinMoveSqrMagnitude = 0.01f;
+        private const float SendPositionThresholdSqr = 0.0001f;
+        private const float SendRotationThreshold = 0.5f;
+        private const float ServerMoveTolerance = 0.3f;
 
         [SyncVar] private Vector3 syncPosition;
-        [SyncVar(hook = nameof(OnRotationChanged))] private float syncRotationY;
+        [SyncVar] private float syncRotationY;
 
         private void Awake()
         {
@@ -81,6 +89,10 @@ namespace IsometricShooter.Player
         public override void OnStartLocalPlayer()
         {
             base.OnStartLocalPlayer();
+
+            lastSentSyncPosition = transform.position;
+            lastSentSyncRotY = transform.rotation.eulerAngles.y;
+
             if (playerCamera != null)
                 playerCamera.gameObject.SetActive(true);
 
@@ -109,7 +121,23 @@ namespace IsometricShooter.Player
 
             ApplySmoothRotation();
 
-            CmdUpdateTransform(transform.position, transform.rotation.eulerAngles.y);
+            SendTransformUpdate();
+        }
+
+        private void SendTransformUpdate()
+        {
+            float rotY = transform.rotation.eulerAngles.y;
+
+            if (Vector3.SqrMagnitude(transform.position - lastSentSyncPosition) < SendPositionThresholdSqr &&
+                Mathf.Abs(Mathf.DeltaAngle(lastSentSyncRotY, rotY)) < SendRotationThreshold)
+            {
+                return;
+            }
+
+            lastSentSyncPosition = transform.position;
+            lastSentSyncRotY = rotY;
+
+            CmdUpdateTransform(lastSentSyncPosition, lastSentSyncRotY);
         }
 
         private void FixedUpdate()
@@ -120,15 +148,17 @@ namespace IsometricShooter.Player
             Move();
         }
 
-        [Command]
+        [Command(requiresAuthority = true, channel = Channels.Unreliable)]
         private void CmdUpdateTransform(Vector3 pos, float rotY)
         {
+            float step = Vector3.Distance(pos, syncPosition);
+            float maxStep = maxSpeedServer * Time.deltaTime + ServerMoveTolerance;
+
+            if (step > maxStep)
+                return;
+
             syncPosition = pos;
             syncRotationY = rotY;
-        }
-
-        private void OnRotationChanged(float oldRot, float newRot)
-        {
         }
 
         private void SyncTransform()

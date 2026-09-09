@@ -32,7 +32,6 @@ namespace IsometricShooter.AI
         private bool isAiming;
         private Vector3 currentTargetWorldPosition;
 
-        private const float ChestHeightOffset = 1.2f;
         private const float MinDirectionSqrMagnitude = 0.001f;
 
         private readonly RaycastHit[] wallCheckHits = new RaycastHit[32];
@@ -45,27 +44,8 @@ namespace IsometricShooter.AI
 
         private void CheckWallObstacle()
         {
-            if (bulletSpawnPoint != null)
-            {
-                Vector3 origin = transform.position + Vector3.up * ChestHeightOffset;
-                Vector3 dir = transform.forward;
-
-                int count = Physics.RaycastNonAlloc(origin, dir, wallCheckHits, wallCheckDistance, obstacleLayer, QueryTriggerInteraction.Ignore);
-                bool blocked = false;
-
-                for (int i = 0; i < count; i++)
-                {
-                    if (wallCheckHits[i].collider == null)
-                        continue;
-
-                    if (wallCheckHits[i].collider.transform.root != transform.root)
-                    {
-                        blocked = true;
-                        break;
-                    }
-                }
-                isBlockedByWall = blocked;
-            }
+            isBlockedByWall = bulletSpawnPoint != null &&
+                              CombatUtility.IsChestBlocked(transform, transform.forward, wallCheckDistance, obstacleLayer, wallCheckHits);
         }
 
         public void SetAimState(bool aiming, Vector3 targetWorldPosition)
@@ -150,20 +130,7 @@ namespace IsometricShooter.AI
 
                 if (bulletPrefab != null && bulletSpawnPoint != null)
                 {
-                    Vector3 spawnPos = bulletSpawnPoint.position;
-                    GameObject bullet = Instantiate(
-                        bulletPrefab,
-                        spawnPos,
-                        Quaternion.LookRotation(targetDirection, Vector3.up)
-                    );
-
-                    NetworkServer.Spawn(bullet);
-
-                    Bullet bulletScript = bullet.GetComponent<Bullet>();
-                    if (bulletScript != null)
-                    {
-                        bulletScript.Initialize(targetDirection, bulletSpeed, gameObject, connectionToClient);
-                    }
+                    CombatUtility.SpawnNetworkBullet(bulletPrefab, bulletSpawnPoint.position, targetDirection, bulletSpeed, gameObject, null);
                 }
             }
         }

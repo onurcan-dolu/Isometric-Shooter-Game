@@ -1,5 +1,6 @@
 using UnityEngine;
 using Mirror;
+using IsometricShooter.Core;
 
 namespace IsometricShooter.Player
 {
@@ -10,10 +11,17 @@ namespace IsometricShooter.Player
         private static readonly int AnimWalk = Animator.StringToHash("Walk");
         private static readonly int AnimSprint = Animator.StringToHash("Sprint");
         private static readonly int AnimCrouch = Animator.StringToHash("Crouch");
+        private static readonly int AnimHasWeapon = Animator.StringToHash("HasWeapon");
+        private static readonly int AnimAiming = Animator.StringToHash("Aiming");
+        private static readonly int AnimMeleeAttack = Animator.StringToHash("MeleeAttack");
+        private static readonly int AnimWeaponType = Animator.StringToHash("WeaponType");
 
         [Header("References")]
         [SerializeField] private Animator animator;
+        [SerializeField] private Transform rigTarget;
         [SerializeField] private PlayerController characterController;
+        [SerializeField] private WeaponController weaponController;
+        [SerializeField] private ShootingController shootingController;
 
         [Header("Animation")]
         [SerializeField] private float animationSmoothSpeed = 10f;
@@ -35,6 +43,15 @@ namespace IsometricShooter.Player
         private bool lastSentSprint;
         private bool lastSentCrouch;
 
+        private EquipmentState lastWeaponState;
+        private float weaponTypeFloat;
+
+        private struct EquipmentState
+        {
+            public int type;
+            public bool aiming;
+        }
+
         private void Awake()
         {
             if (animator == null)
@@ -42,6 +59,62 @@ namespace IsometricShooter.Player
 
             if (characterController == null)
                 characterController = GetComponent<PlayerController>();
+
+            if (weaponController == null)
+                weaponController = GetComponent<WeaponController>();
+
+            if (shootingController == null)
+                shootingController = GetComponent<ShootingController>();
+        }
+
+        private void OnEnable()
+        {
+            if (weaponController != null)
+            {
+                weaponController.OnItemChanged += OnItemChanged;
+                weaponController.OnMeleeAttack += OnMeleeAttack;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (weaponController != null)
+            {
+                weaponController.OnItemChanged -= OnItemChanged;
+                weaponController.OnMeleeAttack -= OnMeleeAttack;
+            }
+        }
+
+        private void OnItemChanged()
+        {
+            ApplyWeaponState();
+        }
+
+        private void OnMeleeAttack()
+        {
+            if (animator == null)
+                return;
+
+            animator.SetTrigger(AnimMeleeAttack);
+        }
+
+        private void ApplyWeaponState()
+        {
+            if (animator == null || weaponController == null)
+                return;
+
+            ItemData item = weaponController.CurrentItem;
+
+            int type = 0;
+            if (item is WeaponData)
+                type = 1;
+            else if (item is MeleeItemData)
+                type = 2;
+
+            bool hasWeapon = item != null;
+
+            animator.SetBool(AnimHasWeapon, hasWeapon);
+            animator.SetFloat(AnimWeaponType, type);
         }
 
         private void Update()
@@ -72,6 +145,29 @@ namespace IsometricShooter.Player
                     lastSentCrouch = crouch;
                     CmdUpdateAnimationState(targetForward, targetLeft, walk, sprint, crouch);
                 }
+
+                bool aiming = shootingController != null && shootingController.IsAiming();
+                int type = weaponController.CurrentItem is MeleeItemData ? 2 : (weaponController.CurrentItem is WeaponData ? 1 : 0);
+
+                if (lastWeaponState.type != type || lastWeaponState.aiming != aiming)
+                {
+                    lastWeaponState.type = type;
+                    lastWeaponState.aiming = aiming;
+                    ApplyWeaponState();
+                }
+
+                if (animator != null)
+                {
+                    animator.SetBool(AnimAiming, aiming);
+                }
+            }
+            if (rigTarget != null && shootingController != null)
+            {
+                Vector3 aimTarget = isLocalPlayer
+                    ? shootingController.GetAimWorldPosition()
+                    : shootingController.GetSyncedAimWorldPosition();
+
+                rigTarget.position = Vector3.Lerp(rigTarget.position, aimTarget, Time.deltaTime * 60f);
             }
 
             ApplyAnimations();

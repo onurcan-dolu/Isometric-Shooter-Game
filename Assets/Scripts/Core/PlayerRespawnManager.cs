@@ -22,6 +22,7 @@ namespace IsometricShooter.Core
 
         private readonly List<PlayerInfo> trackedPlayers = new List<PlayerInfo>();
         private NetworkStartPosition[] cachedSpawnPoints;
+        private Transform cachedFallbackStart;
 
         private void Awake()
         {
@@ -35,9 +36,19 @@ namespace IsometricShooter.Core
             }
         }
 
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
+        }
+
         public override void OnStartServer()
         {
             cachedSpawnPoints = FindObjectsOfType<NetworkStartPosition>();
+            GameObject fallbackObj = GameObject.FindWithTag("StartPos");
+            cachedFallbackStart = fallbackObj != null ? fallbackObj.transform : null;
         }
 
         private void Update()
@@ -140,13 +151,7 @@ namespace IsometricShooter.Core
                 return cachedSpawnPoints[randomIndex].transform;
             }
 
-            GameObject fallbackObj = GameObject.FindWithTag("StartPos");
-            if (fallbackObj != null)
-            {
-                return fallbackObj.transform;
-            }
-
-            return null;
+            return cachedFallbackStart;
         }
     }
 }

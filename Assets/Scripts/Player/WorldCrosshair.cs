@@ -1,11 +1,13 @@
 using UnityEngine;
+using IsometricShooter.Core;
 
 namespace IsometricShooter.Player
 {
     public class WorldCrosshair : MonoBehaviour
     {
         [Header("Settings")]
-        [SerializeField] private Transform muzzlePoint;
+        private Transform muzzlePoint;
+        [SerializeField] private WeaponReferancer weaponReferancer;
         [SerializeField] private float maxDistance = 100f;
         [SerializeField] private LayerMask hitLayer = ~0;
 
@@ -35,6 +37,27 @@ namespace IsometricShooter.Player
 
         private bool isLocal;
 
+        public void SetVisible(bool visible)
+        {
+            if (crosshairVisual != null)
+            {
+                crosshairVisual.gameObject.SetActive(visible);
+            }
+        }
+
+        public void SetWeaponReferancer(WeaponReferancer referancer)
+        {
+            weaponReferancer = referancer;
+        }
+
+        private Transform GetMuzzlePoint()
+        {
+            if (weaponReferancer != null && weaponReferancer.FirePoint != null)
+                return weaponReferancer.FirePoint;
+
+            return muzzlePoint != null ? muzzlePoint : transform;
+        }
+
         public void Initialize(bool isLocalPlayer)
         {
             isLocal = isLocalPlayer;
@@ -45,9 +68,6 @@ namespace IsometricShooter.Player
                 enabled = false;
                 return;
             }
-
-            if (muzzlePoint == null)
-                muzzlePoint = transform;
 
             if (crosshairVisual != null)
             {
@@ -66,7 +86,7 @@ namespace IsometricShooter.Player
 
         private void LateUpdate()
         {
-            if (!isLocal || muzzlePoint == null || crosshairVisual == null)
+            if (!isLocal || crosshairVisual == null)
                 return;
 
             UpdateCrosshair();
@@ -74,8 +94,12 @@ namespace IsometricShooter.Player
 
         private void UpdateCrosshair()
         {
+            Transform muzzlePoint = GetMuzzlePoint();
+            if (muzzlePoint == null)
+                return;
+
             Vector3 rayOrigin = muzzlePoint.position;
-            Vector3 rayDirection = -muzzlePoint.forward;
+            Vector3 rayDirection = muzzlePoint.right;
 
             int count = Physics.RaycastNonAlloc(rayOrigin, rayDirection, raycastBuffer, maxDistance, hitLayer, QueryTriggerInteraction.Collide);
 

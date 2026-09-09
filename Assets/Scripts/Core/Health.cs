@@ -78,5 +78,15 @@ namespace IsometricShooter.Core
         public float GetHealth() => currentHealth;
         public float GetMaxHealth() => maxHealth;
         public bool IsDead() => isDead;
+
+        public static bool IsDead(GameObject owner)
+        {
+            if (owner == null) return false;
+
+            Health health = owner.GetComponent<Health>();
+            if (health != null) return health.IsDead();
+
+            return false;
+        }
     }
 }

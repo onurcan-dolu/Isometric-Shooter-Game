@@ -36,7 +36,7 @@ namespace IsometricShooter.Core
         [Header("Damage Impact")]
         [SerializeField] private float impactForce = 20f;
 
-        [SyncVar] private Vector3 syncDirection;
+        [SyncVar] private Vector3 syncDir;
         [SyncVar] private float syncSpeed;
 
         private GameObject owner;
@@ -49,12 +49,17 @@ namespace IsometricShooter.Core
 
             if (isServer)
             {
-                if (syncDirection == Vector3.zero)
+                if (syncDir == Vector3.zero)
                 {
-                    syncDirection = transform.forward;
+                    syncDir = transform.forward;
                     syncSpeed = speed;
                 }
             }
+        }
+
+        public void SetDamage(float value)
+        {
+            damage = value;
         }
 
         public void Initialize(Vector3 shootDirection, float bulletSpeed, GameObject bulletOwner, NetworkConnection conn)
@@ -64,11 +69,11 @@ namespace IsometricShooter.Core
                 shootDirection = transform.forward;
             }
 
-            syncDirection = shootDirection.normalized;
+            syncDir = shootDirection.normalized;
             syncSpeed = bulletSpeed;
             owner = bulletOwner;
 
-            transform.rotation = Quaternion.LookRotation(syncDirection, Vector3.up);
+            transform.rotation = Quaternion.LookRotation(syncDir, Vector3.up);
 
             if (isServer)
             {
@@ -113,7 +118,7 @@ namespace IsometricShooter.Core
                 return;
             }
 
-            if (syncDirection == Vector3.zero)
+            if (syncDir == Vector3.zero)
                 return;
 
             float distance = syncSpeed * Time.deltaTime;
@@ -122,7 +127,7 @@ namespace IsometricShooter.Core
             {
                 Vector3 startPosition = transform.position;
 
-                if (Physics.Raycast(startPosition, syncDirection, out RaycastHit hit, distance, collisionLayer, QueryTriggerInteraction.Collide))
+                if (Physics.Raycast(startPosition, syncDir, out RaycastHit hit, distance, collisionLayer, QueryTriggerInteraction.Collide))
                 {
                     if (!ShouldIgnoreCollider(hit.collider))
                     {
@@ -131,16 +136,16 @@ namespace IsometricShooter.Core
                     }
                 }
 
-                transform.position = startPosition + syncDirection * distance;
+                transform.position = startPosition + syncDir * distance;
 
                 if (showDebugRay)
                 {
-                    Debug.DrawRay(startPosition, syncDirection * debugRayLength, Color.red, Time.deltaTime);
+                    Debug.DrawRay(startPosition, syncDir * debugRayLength, Color.red, Time.deltaTime);
                 }
             }
             else
             {
-                transform.position += syncDirection * distance;
+                transform.position += syncDir * distance;
             }
         }
 
@@ -232,7 +237,7 @@ namespace IsometricShooter.Core
                     hitPosition = hitboxCollider.ClosestPoint(transform.position);
                 }
 
-                hitbox.OnHit(damage, syncDirection, hitPosition, impactForce, connectionToClient);
+                hitbox.OnHit(damage, syncDir, hitPosition, impactForce, connectionToClient);
             }
         }
 

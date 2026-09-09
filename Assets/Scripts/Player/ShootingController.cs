@@ -1,20 +1,16 @@
 using UnityEngine;
 using Mirror;
-using System.Collections;
 using IsometricShooter.Core;
 
 namespace IsometricShooter.Player
 {
     public class ShootingController : NetworkBehaviour
-    {
+{
         [Header("References")]
         [SerializeField] private Camera playerCamera;
         [SerializeField] private LayerMask groundLayer;
-
-        [Header("Weapon")]
-        [SerializeField] private Transform weaponPivot;
-        [SerializeField] private Transform weaponAimPoint;
-        [SerializeField] private Transform bulletSpawnPoint;
+        [SerializeField] private WeaponController weaponController;
+        [SerializeField] private WeaponReferancer weaponReferancer;
 
         [Header("Weapon Positions")]
         [SerializeField] private Transform idlePosition;
@@ -25,21 +21,7 @@ namespace IsometricShooter.Player
         [SerializeField] private float weaponAimSpeed = 720f;
         [SerializeField] private Vector3 aimRotationOffset;
 
-        [Header("Shooting")]
-        [SerializeField] private GameObject bulletPrefab;
-        [SerializeField] private float bulletSpeed = 40f;
-        [SerializeField] private float fireRate = 0.15f;
-
-        [Header("Muzzle Flash & Effects")]
-        [SerializeField] private ParticleSystem muzzleFlash;
-        [SerializeField] private Light muzzleLight;
-        [SerializeField] private float lightDuration = 0.05f;
-        [SerializeField] private AudioSource audioSource;
-        [SerializeField] private AudioClip shootSound;
-
         [Header("Bullet Spread")]
-        [SerializeField] private float maxVerticalSpread = 2f;
-        [SerializeField] private float maxHorizontalSpread = 0.5f;
         [SerializeField] private float spreadIncreaseTime = 1f;
         [SerializeField] private float spreadRecoveryTime = 0.5f;
 
@@ -48,7 +30,11 @@ namespace IsometricShooter.Player
         [Header("Gizmos")]
         [SerializeField] private bool showAimGizmos = true;
 
+        public Vector3 AimWorldPosition => aimWorldPosition;
+
         private Vector3 aimWorldPosition;
+
+
         private Vector3 aimDirection;
 
         private Camera mainCamera;
@@ -73,8 +59,8 @@ namespace IsometricShooter.Player
 
         private const float AimRayDistance = 1000f;
         private const float MinDirectionSqrMagnitude = 0.001f;
-        private const float ChestHeightOffset = 1.2f;
-        private const float ChestForwardOffset = 0.2f;
+
+        private float serverNextFireTime;
 
         private readonly RaycastHit[] wallCheckHits = new RaycastHit[32];
 
@@ -82,48 +68,83 @@ namespace IsometricShooter.Player
         {
             mainCamera = Camera.main;
 
-            if (muzzleLight != null)
+            if (weaponController == null)
+                weaponController = GetComponent<WeaponController>();
+
+            if (weaponReferancer == null)
+                weaponReferancer = GetComponentInChildren<WeaponReferancer>(true);
+        }
+
+        public void SetWeaponReferancer(WeaponReferancer referancer)
+        {
+            weaponReferancer = referancer;
+
+            if (weaponReferancer != null && weaponReferancer.MuzzleLight != null)
             {
-                muzzleLight.enabled = false;
+                weaponReferancer.MuzzleLight.enabled = false;
             }
+        }
+
+        private bool IsRangedWeaponEquipped()
+        {
+            return weaponController != null && weaponController.CurrentWeapon != null;
         }
 
         private void Update()
         {
-            if (isLocalPlayer)
-            {
-                UpdateAim();
-                UpdateAimState();
-
-                if (aimWorldPosition != lastSentAimPos || isAiming != lastSentIsAiming || hasAimTarget != lastSentHasTarget)
-                {
-                    lastSentAimPos = aimWorldPosition;
-                    lastSentIsAiming = isAiming;
-                    lastSentHasTarget = hasAimTarget;
-                    CmdUpdateAimData(aimWorldPosition, isAiming, hasAimTarget);
-                }
-            }
-
-            UpdateWeapon();
+            bool rangedActive = IsRangedWeaponEquipped();
 
             if (isLocalPlayer)
             {
-                UpdateSpread();
-
-                if (Input.GetMouseButton(0) && !isBlockedByWall)
+                if (rangedActive)
                 {
-                    if (Time.time >= nextFireTime)
+                    UpdateAim();
+                    UpdateAimState();
+
+                    if (aimWorldPosition != lastSentAimPos || isAiming != lastSentIsAiming || hasAimTarget != lastSentHasTarget)
                     {
-                        nextFireTime = Time.time + fireRate;
-                        Vector3 spawnPos = bulletSpawnPoint != null ? bulletSpawnPoint.position : transform.position;
-                        Vector3 spreadDir = ApplySpread(bulletSpawnPoint != null ? bulletSpawnPoint.right : transform.forward);
-
-                        PlayMuzzleFlash();
-
-                        CmdShoot(spawnPos, spreadDir);
+                        lastSentAimPos = aimWorldPosition;
+                        lastSentIsAiming = isAiming;
+                        lastSentHasTarget = hasAimTarget;
+                        CmdUpdateAimData(aimWorldPosition, isAiming, hasAimTarget);
                     }
                 }
+                else
+                {
+                    isAiming = false;
+                    hasAimTarget = false;
+                }
             }
+
+            if (isLocalPlayer && rangedActive)
+            {
+                UpdateSpread();
+            }
+        }
+
+        public void PerformFire(WeaponData weaponData)
+        {
+            if (weaponData == null) return;
+
+            Transform firePoint = GetFirePoint();
+            Vector3 direction = firePoint != null ? firePoint.right : transform.forward;
+            Vector3 spawnPos = firePoint != null ? firePoint.position : transform.position;
+            Vector3 spreadDir = ApplySpread(direction, weaponData);
+
+            PlayMuzzleFlash();
+
+            CmdShoot(spawnPos, spreadDir, weaponData.itemId);
+        }
+
+        public void ServerPerformFire(WeaponData weaponData)
+        {
+            if (weaponData == null) return;
+
+            Transform firePoint = GetFirePoint();
+            Vector3 direction = firePoint != null ? firePoint.right : transform.forward;
+            Vector3 spawnPos = firePoint != null ? firePoint.position : transform.position;
+
+            CombatUtility.SpawnNetworkBullet(weaponData.bulletPrefab, spawnPos, direction, weaponData.bulletSpeed, gameObject, connectionToClient, weaponData.damage);
         }
 
         [Command]
@@ -181,130 +202,42 @@ namespace IsometricShooter.Player
                 return;
 
             aimDirection = direction.normalized;
-        }
+}
 
         private void UpdateAimState()
         {
             bool wantToAim = Input.GetMouseButton(1);
 
-            if (bulletSpawnPoint != null)
-            {
-                Vector3 chestOrigin = transform.position + Vector3.up * ChestHeightOffset + transform.forward * ChestForwardOffset;
-                bool isChestBlocked = CheckRaycastIgnoringSelf(chestOrigin, transform.forward, wallCheckDistance);
-                isBlockedByWall = isChestBlocked;
-            }
-            else
-            {
-                isBlockedByWall = false;
-            }
+            isBlockedByWall = GetFirePoint() != null &&
+                              CombatUtility.IsChestBlocked(transform, transform.forward, wallCheckDistance, obstacleLayer, wallCheckHits);
 
-            if (isBlockedByWall)
-            {
-                isAiming = false;
-            }
-            else
-            {
-                isAiming = wantToAim;
-            }
-        }
-
-        private bool CheckRaycastIgnoringSelf(Vector3 origin, Vector3 direction, float distance)
-        {
-            int count = Physics.RaycastNonAlloc(origin, direction, wallCheckHits, distance, obstacleLayer, QueryTriggerInteraction.Ignore);
-
-            for (int i = 0; i < count; i++)
-            {
-                if (wallCheckHits[i].collider == null)
-                    continue;
-
-                if (wallCheckHits[i].collider.transform.root != transform.root)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private void UpdateWeapon()
-        {
-            if (weaponPivot == null)
-                return;
-
-            bool currentAiming = isLocalPlayer ? isAiming : syncIsAiming;
-            Transform target = currentAiming ? aimPosition : idlePosition;
-
-            if (target == null)
-                return;
-
-            weaponPivot.position = Vector3.Lerp(
-                weaponPivot.position,
-                target.position,
-                aimLerpSpeed * Time.deltaTime
-            );
-
-            if (!currentAiming)
-            {
-                weaponPivot.rotation = Quaternion.Slerp(
-                    weaponPivot.rotation,
-                    target.rotation,
-                    aimLerpSpeed * Time.deltaTime
-                );
-
-                return;
-            }
-
-            AimWeapon();
-        }
-
-        private void AimWeapon()
-        {
-            bool currentHasTarget = isLocalPlayer ? hasAimTarget : syncHasAimTarget;
-            if (!currentHasTarget)
-                return;
-
-            if (weaponAimPoint == null)
-                return;
-
-            Vector3 targetWorldPos = isLocalPlayer ? aimWorldPosition : syncAimWorldPosition;
-            Vector3 direction = targetWorldPos - weaponAimPoint.position;
-
-            if (direction.sqrMagnitude < MinDirectionSqrMagnitude)
-                return;
-
-            direction.Normalize();
-
-            Quaternion lookRotation = Quaternion.LookRotation(direction, Vector3.up);
-            Quaternion offset = Quaternion.Euler(aimRotationOffset);
-            Quaternion targetRotation = lookRotation * offset;
-
-            weaponPivot.rotation = Quaternion.RotateTowards(
-                weaponPivot.rotation,
-                targetRotation,
-                weaponAimSpeed * Time.deltaTime
-            );
+            isAiming = isBlockedByWall ? false : wantToAim;
         }
 
         [Command]
-        private void CmdShoot(Vector3 spawnPos, Vector3 spreadDirection)
+        private void CmdShoot(Vector3 spawnPos, Vector3 spreadDirection, string weaponId)
         {
+            if (Health.IsDead(gameObject)) return;
+
+            if (weaponController == null || weaponController.CurrentWeapon == null ||
+                weaponController.CurrentWeapon.itemId != weaponId)
+                return;
+
+            WeaponData weaponData = weaponController.CurrentWeapon;
+            if (weaponData.bulletPrefab == null)
+                return;
+
+            if (Time.time < serverNextFireTime)
+                return;
+            serverNextFireTime = Time.time + weaponData.fireRate;
+
+            if (weaponController.CurrentAmmo <= 0)
+                return;
+            weaponController.ConsumeServerAmmo();
+
             RpcPlayMuzzleFlash();
 
-            if (bulletPrefab != null)
-            {
-                GameObject bullet = Instantiate(
-                    bulletPrefab,
-                    spawnPos,
-                    Quaternion.LookRotation(spreadDirection, Vector3.up)
-                );
-
-                Bullet bulletScript = bullet.GetComponent<Bullet>();
-                if (bulletScript != null)
-                {
-                    bulletScript.Initialize(spreadDirection, bulletSpeed, gameObject, connectionToClient);
-                }
-
-                NetworkServer.Spawn(bullet, connectionToClient);
-            }
+            CombatUtility.SpawnNetworkBullet(weaponData.bulletPrefab, spawnPos, spreadDirection, weaponData.bulletSpeed, gameObject, connectionToClient, weaponData.damage);
         }
 
         [ClientRpc]
@@ -314,36 +247,23 @@ namespace IsometricShooter.Player
             {
                 PlayMuzzleFlash();
             }
-        }
+}
+
         private void PlayMuzzleFlash()
         {
-            if (muzzleLight != null)
+            if (weaponReferancer != null)
             {
-                StopAllCoroutines();
-                StartCoroutine(FlashLightRoutine());
-            }
-
-            if (audioSource != null && shootSound != null)
-            {
-                audioSource.PlayOneShot(shootSound);
+                weaponReferancer.PlayMuzzleFlash();
+                weaponReferancer.PlayShootSound();
             }
         }
 
-        private IEnumerator FlashLightRoutine()
-        {
-            if (muzzleFlash != null)
-            {
-                muzzleFlash.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                muzzleFlash.Play();
-            }
-            muzzleLight.enabled = true;
-            yield return new WaitForSeconds(lightDuration);
-            muzzleLight.enabled = false;
-        }
-
-        private Vector3 ApplySpread(Vector3 direction)
+        private Vector3 ApplySpread(Vector3 direction, WeaponData weaponData)
         {
             if (currentSpread <= 0f)
+                return direction.normalized;
+
+            if (weaponData == null)
                 return direction.normalized;
 
             direction.Normalize();
@@ -356,8 +276,8 @@ namespace IsometricShooter.Player
 
             Vector3 up = Vector3.Cross(right, direction).normalized;
 
-            float horizontal = Random.Range(-maxHorizontalSpread, maxHorizontalSpread) * currentSpread;
-            float vertical = Random.Range(0f, maxVerticalSpread) * currentSpread;
+            float horizontal = Random.Range(-weaponData.maxHorizontalSpread, weaponData.maxHorizontalSpread) * currentSpread;
+            float vertical = Random.Range(0f, weaponData.maxVerticalSpread) * currentSpread;
 
             Vector3 spreadDirection = direction + right * horizontal + up * vertical;
 
@@ -366,7 +286,19 @@ namespace IsometricShooter.Player
 
         public Vector3 GetAimDirection() => aimDirection;
         public Vector3 GetAimWorldPosition() => aimWorldPosition;
+        public Vector3 GetSyncedAimWorldPosition() => syncAimWorldPosition;
         public bool IsAiming() => isAiming;
+        public bool IsAimingVisual => isLocalPlayer ? isAiming : syncIsAiming;
+
+        private Transform GetAimPoint()
+        {
+            return weaponReferancer != null ? weaponReferancer.AimPoint : null;
+        }
+
+        private Transform GetFirePoint()
+        {
+            return weaponReferancer != null ? weaponReferancer.FirePoint : null;
+        }
 
         public void SetAICombatState(bool aim, bool shoot)
         {
@@ -375,36 +307,33 @@ namespace IsometricShooter.Player
                 isAiming = aim;
                 if (shoot && !isBlockedByWall)
                 {
-                    if (Time.time >= nextFireTime)
+                    WeaponController weaponController = GetComponent<WeaponController>();
+                    if (weaponController != null)
                     {
-                        nextFireTime = Time.time + fireRate;
-                        Vector3 spawnPos = bulletSpawnPoint != null ? bulletSpawnPoint.position : transform.position;
-                        Vector3 spreadDir = ApplySpread(bulletSpawnPoint != null ? bulletSpawnPoint.right : transform.forward);
-
-                        PlayMuzzleFlash();
-                        CmdShoot(spawnPos, spreadDir);
+                        weaponController.ServerFireFromAI();
                     }
                 }
             }
-        }
+}
 
         private void OnDrawGizmos()
         {
             if (!showAimGizmos)
                 return;
 
-            if (bulletSpawnPoint != null)
+            Transform firePoint = GetFirePoint();
+            if (firePoint != null)
             {
-                Vector3 chestOrigin = transform.position + Vector3.up * ChestHeightOffset + transform.forward * ChestForwardOffset;
                 float chestCheckDistance = 0.8f;
 
-                bool isChestBlocked = CheckRaycastIgnoringSelf(chestOrigin, transform.forward, chestCheckDistance);
+                bool isChestBlocked = CombatUtility.IsChestBlocked(transform, transform.forward, chestCheckDistance, obstacleLayer, wallCheckHits);
                 Gizmos.color = isChestBlocked ? Color.red : Color.green;
-                Gizmos.DrawLine(chestOrigin, chestOrigin + transform.forward * chestCheckDistance);
+                Gizmos.DrawLine(transform.position + Vector3.up * CombatUtility.ChestHeightOffset + transform.forward * CombatUtility.ChestForwardOffset,
+                    transform.position + Vector3.up * CombatUtility.ChestHeightOffset + transform.forward * CombatUtility.ChestForwardOffset + transform.forward * chestCheckDistance);
 
-                bool isMuzzleStuck = CheckRaycastIgnoringSelf(bulletSpawnPoint.position, bulletSpawnPoint.forward, wallCheckDistance * 0.5f);
+                bool isMuzzleStuck = CombatUtility.IsBlockedIgnoringSelf(firePoint.position, firePoint.forward, wallCheckDistance * 0.5f, obstacleLayer, firePoint, wallCheckHits);
                 Gizmos.color = isMuzzleStuck ? Color.red : Color.cyan;
-                Gizmos.DrawLine(bulletSpawnPoint.position, bulletSpawnPoint.position + bulletSpawnPoint.forward * (wallCheckDistance * 0.5f));
+                Gizmos.DrawLine(firePoint.position, firePoint.position + firePoint.forward * (wallCheckDistance * 0.5f));
             }
         }
     }

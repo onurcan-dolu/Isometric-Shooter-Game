@@ -132,19 +132,7 @@ namespace IsometricShooter.AI
 
             RpcPlayMuzzleFlash();
 
-            GameObject bullet = Instantiate(
-                bulletPrefab,
-                bulletSpawnPoint.position,
-                Quaternion.LookRotation(direction, Vector3.up)
-            );
-
-            Bullet bulletScript = bullet.GetComponent<Bullet>();
-            if (bulletScript != null)
-            {
-                bulletScript.Initialize(direction, bulletSpeed, gameObject, null);
-            }
-
-            NetworkServer.Spawn(bullet);
+            CombatUtility.SpawnNetworkBullet(bulletPrefab, bulletSpawnPoint.position, direction, bulletSpeed, gameObject, null);
         }
 
         [ClientRpc]
