@@ -34,6 +34,7 @@ namespace IsometricShooter.Player
         private bool hasInitialItemState;
         private bool awaitingWorldPickup;
         private float weaponPoseBlend;
+        private PlayerController cachedPlayerController;
 
         public GameObject ActiveEquipModel => activeModel;
         public Transform WeaponMount => weaponMount;
@@ -51,6 +52,9 @@ namespace IsometricShooter.Player
 
             if (crosshair == null)
                 crosshair = GetComponent<WorldCrosshair>();
+
+            if (cachedPlayerController == null)
+                cachedPlayerController = GetComponent<PlayerController>();
 
             if (ikRigs == null || ikRigs.Length == 0)
                 ikRigs = FindAllRigs();
@@ -243,6 +247,22 @@ namespace IsometricShooter.Player
                 GripRefs grips = GetGripRefs(activeModel);
                 rightGrip = grips.right;
                 leftGrip = grips.left;
+            }
+        }
+
+        private void Update()
+        {
+            if (!isLocalPlayer || ikRigs == null)
+                return;
+
+            bool sprinting = cachedPlayerController != null && cachedPlayerController.IsSprinting();
+
+            float weight = sprinting ? 0f : (weaponController != null && weaponController.CurrentItem is WeaponData ? 1f : 0f);
+
+            for (int i = 0; i < ikRigs.Length; i++)
+            {
+                if (ikRigs[i] != null)
+                    ikRigs[i].weight = weight;
             }
         }
 

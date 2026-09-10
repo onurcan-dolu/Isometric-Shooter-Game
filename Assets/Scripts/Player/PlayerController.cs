@@ -18,6 +18,10 @@ namespace IsometricShooter.Player
         [Header("Rotation Settings")]
         [SerializeField] private float rotationSpeed = 20f;
 
+        [Header("Locomotion")]
+        [SerializeField] private float sprintRotationSpeed = 260f;
+        [SerializeField] private TurnController turnController;
+
         [Header("Vehicle")]
         [SerializeField] private float vehicleEnterRadius = 2.5f;
 
@@ -64,6 +68,9 @@ namespace IsometricShooter.Player
         {
             rb = GetComponent<Rigidbody>();
             topDownCamera = GetComponent<TopDownCinemachineController>();
+
+            if (turnController == null)
+                turnController = GetComponent<TurnController>();
 
             rb.freezeRotation = true;
         }
@@ -167,7 +174,7 @@ namespace IsometricShooter.Player
             CalculateSpeed();
             CalculateTargetRotation();
 
-            ApplySmoothRotation();
+            ApplyRotation();
 
             SendTransformUpdate();
         }
@@ -305,9 +312,43 @@ namespace IsometricShooter.Player
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
 
+        private void ApplyRotation()
+        {
+            if (turnController != null && turnController.BlocksRotation)
+                return;
+
+            if (IsSprinting())
+            {
+                RotateTowardMoveDirection();
+                return;
+            }
+
+            if (turnController != null && turnController.ManagesIdleRotation && IsIdleStanding())
+                return;
+
+            ApplySmoothRotation();
+        }
+
+        private void RotateTowardMoveDirection()
+        {
+            if (moveDirection.sqrMagnitude < MinMoveSqrMagnitude)
+                return;
+
+            Quaternion target = Quaternion.LookRotation(moveDirection);
+
+            transform.rotation = Quaternion.RotateTowards(
+                transform.rotation,
+                target,
+                sprintRotationSpeed * Time.deltaTime
+            );
+        }
+
         public Vector3 GetMoveDirection() { return moveDirection; }
-        public bool IsRunning() { return Input.GetKey(KeyCode.LeftShift) && moveInput.sqrMagnitude > MinMoveSqrMagnitude && !IsCrouching(); }
+        public bool IsMoving() { return moveInput.sqrMagnitude > MinMoveSqrMagnitude; }
+        public bool IsRunning() { return IsSprinting(); }
+        public bool IsSprinting() { return Input.GetKey(KeyCode.LeftShift) && moveInput.sqrMagnitude > MinMoveSqrMagnitude && !IsCrouching(); }
         public bool IsCrouching() { return Input.GetKey(KeyCode.LeftControl); }
+        public bool IsIdleStanding() { return !IsInVehicle && !IsMoving() && !IsCrouching() && !IsSprinting(); }
 
         public Vehicle CurrentVehicle => vehicle;
         public bool IsInVehicle => vehicle != null;

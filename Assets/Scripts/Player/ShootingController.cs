@@ -57,6 +57,8 @@ namespace IsometricShooter.Player
 
         private bool isBlockedByWall;
 
+        private PlayerController playerController;
+
         private const float AimRayDistance = 1000f;
         private const float MinDirectionSqrMagnitude = 0.001f;
 
@@ -64,9 +66,11 @@ namespace IsometricShooter.Player
 
         private readonly RaycastHit[] wallCheckHits = new RaycastHit[32];
 
-        private void Awake()
+private void Awake()
         {
             mainCamera = Camera.main;
+
+            playerController = GetComponent<PlayerController>();
 
             if (weaponController == null)
                 weaponController = GetComponent<WeaponController>();
@@ -96,9 +100,10 @@ namespace IsometricShooter.Player
 
             if (isLocalPlayer)
             {
+                UpdateAim();
+
                 if (rangedActive)
                 {
-                    UpdateAim();
                     UpdateAimState();
 
                     if (aimWorldPosition != lastSentAimPos || isAiming != lastSentIsAiming || hasAimTarget != lastSentHasTarget)
@@ -211,7 +216,7 @@ namespace IsometricShooter.Player
             isBlockedByWall = GetFirePoint() != null &&
                               CombatUtility.IsChestBlocked(transform, transform.forward, wallCheckDistance, obstacleLayer, wallCheckHits);
 
-            isAiming = isBlockedByWall ? false : wantToAim;
+            isAiming = (isBlockedByWall || (playerController != null && playerController.IsSprinting())) ? false : wantToAim;
         }
 
         [Command]

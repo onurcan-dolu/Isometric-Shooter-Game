@@ -42,6 +42,7 @@ namespace IsometricShooter.Core
         private readonly WeaponPickupRegistry pickupRegistry = new WeaponPickupRegistry();
         private readonly ReloadRuntime reloadRuntime = new ReloadRuntime();
         private readonly MeleeExecution meleeExecution = new MeleeExecution();
+        private PlayerController cachedPlayerController;
 
         public event Action OnItemChanged;
         public event Action<int, int> OnAmmoUpdated;
@@ -61,6 +62,11 @@ namespace IsometricShooter.Core
         {
             PlayerController playerController = GetComponent<PlayerController>();
             return playerController != null && playerController.IsInVehicle;
+        }
+
+        private void Awake()
+        {
+            cachedPlayerController = GetComponent<PlayerController>();
         }
 
         public override void OnStartServer()
@@ -89,6 +95,7 @@ namespace IsometricShooter.Core
 
             if (!isLocalPlayer) return;
             if (Health.IsDead(gameObject)) return;
+            if (cachedPlayerController != null && cachedPlayerController.IsSprinting()) return;
 
             if (CurrentMelee != null)
             {

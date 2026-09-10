@@ -5090,7 +5090,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 36.35
+  m_fontSize: 40
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -5225,7 +5225,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -0.000015258789, y: 0}
+  m_AnchoredPosition: {x: -0.000030517578, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &9097414720528982894
@@ -5479,7 +5479,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -0.000015258789, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &2835622970599536878
@@ -6995,6 +6995,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 100000, guid: f12f2d44b2688054986e54861cc211dc, type: 3}
       insertIndex: -1
       addedObject: {fileID: 6210840029200896251}
+    - targetCorrespondingSourceObject: {fileID: 100000, guid: f12f2d44b2688054986e54861cc211dc, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 6100000000000000001}
     - targetCorrespondingSourceObject: {fileID: 100098, guid: f12f2d44b2688054986e54861cc211dc, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2950638516608574562}
@@ -7231,6 +7234,8 @@ MonoBehaviour:
   runSpeed: 7
   syncPositionLerpSpeed: 20
   rotationSpeed: 20
+  sprintRotationSpeed: 1000
+  turnController: {fileID: 6100000000000000001}
   vehicleEnterRadius: 2.5
   maxSpeedServer: 9
   playerCamera: {fileID: 334670234819960994}
@@ -7643,12 +7648,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   targetCamera: {fileID: 334670234819960994}
-  followOffset: {x: 0, y: 12, z: -8}
+  followOffset: {x: 0, y: 8, z: -4}
   vehicleFollowOffset: {x: 0, y: 16, z: -12}
-  maxAnchorOffset: 5
-  vehicleMaxAnchorOffset: 8
-  maxAimLookDistance: 25
-  vehicleMaxAimLookDistance: 50
+  maxAnchorOffset: 1
+  vehicleMaxAnchorOffset: 3
+  maxAimLookDistance: 3
+  vehicleMaxAimLookDistance: 5
   rotationSpeed: 120
 --- !u!82 &6895002074598104733
 AudioSource:
@@ -7832,6 +7837,29 @@ MonoBehaviour:
   weaponController: {fileID: 3181934521395267410}
   shootingController: {fileID: 1879300399868605867}
   crosshair: {fileID: 838217631621524247}
+--- !u!114 &6100000000000000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1750884848007642118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d0a5f2b1c6e8473f9b24a8d1e3c6f9a0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  animator: {fileID: 1750884848014888902}
+  playerController: {fileID: 1930015189449647144}
+  shootingController: {fileID: 1879300399868605867}
+  enableTurnAnimations: 1
+  turnAngleThreshold: 80
+  turn180Threshold: 150
+  turn90Duration: 0.6
+  turn180Duration: 0.9
+  turnCooldown: 0.3
+  idleGracePeriod: 0.2
+  decisionTime: 0.18
 --- !u!1 &1750884848007642402 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 100228, guid: f12f2d44b2688054986e54861cc211dc, type: 3}
@@ -10120,9 +10148,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 3965615229261206945}
     m_Modifications:
+    - target: {fileID: 4193852640364268378, guid: be963bc20f517254888c8369619d33fc, type: 3}
+      propertyPath: m_fontSize
+      value: 20.65
+      objectReference: {fileID: 0}
     - target: {fileID: 4221882917980143177, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_fontSize
-      value: 27.5
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 4975760472066938827, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_Pivot.x
@@ -10226,9 +10258,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 3965615229261206945}
     m_Modifications:
+    - target: {fileID: 4193852640364268378, guid: be963bc20f517254888c8369619d33fc, type: 3}
+      propertyPath: m_fontSize
+      value: 20.65
+      objectReference: {fileID: 0}
     - target: {fileID: 4221882917980143177, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_fontSize
-      value: 27.5
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 4975760472066938827, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_Pivot.x
@@ -10332,9 +10368,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 3965615229261206945}
     m_Modifications:
+    - target: {fileID: 4193852640364268378, guid: be963bc20f517254888c8369619d33fc, type: 3}
+      propertyPath: m_fontSize
+      value: 20.65
+      objectReference: {fileID: 0}
     - target: {fileID: 4221882917980143177, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_fontSize
-      value: 27.5
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 4975760472066938827, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_Pivot.x
@@ -10438,9 +10478,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 3965615229261206945}
     m_Modifications:
+    - target: {fileID: 4193852640364268378, guid: be963bc20f517254888c8369619d33fc, type: 3}
+      propertyPath: m_fontSize
+      value: 20.65
+      objectReference: {fileID: 0}
     - target: {fileID: 4221882917980143177, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_fontSize
-      value: 27.5
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 4975760472066938827, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_Pivot.x
@@ -10544,9 +10588,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 3965615229261206945}
     m_Modifications:
+    - target: {fileID: 4193852640364268378, guid: be963bc20f517254888c8369619d33fc, type: 3}
+      propertyPath: m_fontSize
+      value: 20.65
+      objectReference: {fileID: 0}
     - target: {fileID: 4221882917980143177, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_fontSize
-      value: 27.5
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 4975760472066938827, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_Pivot.x
@@ -10650,9 +10698,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 3965615229261206945}
     m_Modifications:
+    - target: {fileID: 4193852640364268378, guid: be963bc20f517254888c8369619d33fc, type: 3}
+      propertyPath: m_fontSize
+      value: 20.65
+      objectReference: {fileID: 0}
     - target: {fileID: 4221882917980143177, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_fontSize
-      value: 27.5
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 4975760472066938827, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_Pivot.x
@@ -10756,9 +10808,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 3965615229261206945}
     m_Modifications:
+    - target: {fileID: 4193852640364268378, guid: be963bc20f517254888c8369619d33fc, type: 3}
+      propertyPath: m_fontSize
+      value: 20.65
+      objectReference: {fileID: 0}
     - target: {fileID: 4221882917980143177, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_fontSize
-      value: 27.5
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 4975760472066938827, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_Pivot.x
@@ -10862,9 +10918,13 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 3965615229261206945}
     m_Modifications:
+    - target: {fileID: 4193852640364268378, guid: be963bc20f517254888c8369619d33fc, type: 3}
+      propertyPath: m_fontSize
+      value: 20.65
+      objectReference: {fileID: 0}
     - target: {fileID: 4221882917980143177, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_fontSize
-      value: 27.5
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 4975760472066938827, guid: be963bc20f517254888c8369619d33fc, type: 3}
       propertyPath: m_Pivot.x

@@ -122,10 +122,10 @@ namespace IsometricShooter.Player
             if (isLocalPlayer)
             {
                 Vector3 moveDirection = characterController.GetMoveDirection();
-                Vector3 localMoveDirection = transform.InverseTransformDirection(moveDirection);
+                Vector2 localMove = MovementDirectionCalculator.CalculateLocalMove(moveDirection, transform);
 
-                float targetForward = Mathf.Clamp(localMoveDirection.z, -1f, 1f);
-                float targetLeft = Mathf.Clamp(localMoveDirection.x, -1f, 1f);
+                float targetForward = localMove.y;
+                float targetLeft = localMove.x;
 
                 bool walk = moveDirection.sqrMagnitude > MinMoveSqrMagnitude &&
                             !characterController.IsRunning() &&
@@ -146,7 +146,7 @@ namespace IsometricShooter.Player
                     CmdUpdateAnimationState(targetForward, targetLeft, walk, sprint, crouch);
                 }
 
-                bool aiming = shootingController != null && shootingController.IsAiming();
+                bool aiming = shootingController != null && shootingController.IsAiming() && !characterController.IsSprinting();
                 int type = weaponController.CurrentItem is MeleeItemData ? 2 : (weaponController.CurrentItem is WeaponData ? 1 : 0);
 
                 if (lastWeaponState.type != type || lastWeaponState.aiming != aiming)
@@ -163,9 +163,15 @@ namespace IsometricShooter.Player
             }
             if (rigTarget != null && shootingController != null)
             {
-                Vector3 aimTarget = isLocalPlayer
-                    ? shootingController.GetAimWorldPosition()
-                    : shootingController.GetSyncedAimWorldPosition();
+                bool sprinting = isLocalPlayer
+                    ? characterController.IsSprinting()
+                    : syncSprint;
+
+                Vector3 aimTarget = sprinting
+                    ? GetBodyForwardAimTarget()
+                    : isLocalPlayer
+                        ? shootingController.GetAimWorldPosition()
+                        : shootingController.GetSyncedAimWorldPosition();
 
                 rigTarget.position = Vector3.Lerp(rigTarget.position, aimTarget, Time.deltaTime * 60f);
             }
@@ -183,13 +189,22 @@ namespace IsometricShooter.Player
             syncCrouch = crouch;
         }
 
+        private Vector3 GetBodyForwardAimTarget()
+        {
+            return transform.position + (transform.forward * 30f) + Vector3.up;
+        }
+
         private void ApplyAnimations()
         {
             if (animator == null || characterController == null)
                 return;
 
-            float targetForward = isLocalPlayer ? Mathf.Clamp(transform.InverseTransformDirection(characterController.GetMoveDirection()).z, -1f, 1f) : syncForward;
-            float targetLeft = isLocalPlayer ? Mathf.Clamp(transform.InverseTransformDirection(characterController.GetMoveDirection()).x, -1f, 1f) : syncLeft;
+            Vector2 localMove = isLocalPlayer
+                ? MovementDirectionCalculator.CalculateLocalMove(characterController.GetMoveDirection(), transform)
+                : new Vector2(syncLeft, syncForward);
+
+            float targetForward = localMove.y;
+            float targetLeft = localMove.x;
 
             currentForward = Mathf.Lerp(
                 currentForward,
