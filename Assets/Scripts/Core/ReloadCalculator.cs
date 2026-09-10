@@ -2,9 +2,6 @@ using UnityEngine;
 
 namespace IsometricShooter.Core
 {
-    /// <summary>
-    /// Pure reload math: validation and ammo transfer planning. No state.
-    /// </summary>
     public static class ReloadCalculator
     {
         public struct ReloadPlan

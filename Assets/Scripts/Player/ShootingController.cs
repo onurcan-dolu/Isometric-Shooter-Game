@@ -219,6 +219,10 @@ namespace IsometricShooter.Player
         {
             if (Health.IsDead(gameObject)) return;
 
+            PlayerController playerController = GetComponent<PlayerController>();
+            if (playerController != null && playerController.IsInVehicle)
+                return;
+
             if (weaponController == null || weaponController.CurrentWeapon == null ||
                 weaponController.CurrentWeapon.itemId != weaponId)
                 return;

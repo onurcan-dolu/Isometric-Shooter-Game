@@ -2,10 +2,6 @@ using UnityEngine;
 
 namespace IsometricShooter.Core
 {
-    /// <summary>
-    /// Frame-advanced reload timer. Replaces a coroutine on the controller so the
-    /// reload flow stays small and testable.
-    /// </summary>
     public sealed class ReloadRuntime
     {
         private float finishTime;
@@ -24,7 +20,6 @@ namespace IsometricShooter.Core
             active = false;
         }
 
-        /// <summary>Advances the timer; returns true once the reload has finished.</summary>
         public bool Tick()
         {
             if (!active)

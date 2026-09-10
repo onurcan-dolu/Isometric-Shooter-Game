@@ -6,11 +6,6 @@ using IsometricShooter.Player;
 
 namespace IsometricShooter.Core
 {
-    /// <summary>
-    /// Orchestrates the player's equipped loadout: input routing, network commands
-    /// and state sync. All behaviour logic is delegated to focused collaborators
-    /// (ammo store, reload, melee, drop, pickup registry).
-    /// </summary>
     public class WeaponController : NetworkBehaviour
     {
         [Header("References")]
@@ -61,6 +56,12 @@ namespace IsometricShooter.Core
         public int ReserveAmmo => reserveAmmo;
         public bool IsReloading => isReloading;
         public ItemPickup EquippedWorldPickup => equippedWorldPickup;
+
+        private bool IsPlayerInVehicle()
+        {
+            PlayerController playerController = GetComponent<PlayerController>();
+            return playerController != null && playerController.IsInVehicle;
+        }
 
         public override void OnStartServer()
         {
@@ -150,6 +151,8 @@ namespace IsometricShooter.Core
         [Command(requiresAuthority = true)]
         private void CmdStartReload()
         {
+            if (IsPlayerInVehicle()) return;
+
             WeaponData data = CurrentWeapon;
             if (data == null) return;
             if (isReloading) return;
@@ -200,6 +203,7 @@ namespace IsometricShooter.Core
         [Command(requiresAuthority = true)]
         private void CmdMeleeAttack()
         {
+            if (IsPlayerInVehicle()) return;
             if (Health.IsDead(gameObject)) return;
 
             MeleeItemData data = CurrentMelee;
@@ -213,6 +217,7 @@ namespace IsometricShooter.Core
         [Server]
         public void ServerDropItem(string uniqueId)
         {
+            if (IsPlayerInVehicle()) return;
             if (inventory == null) return;
             if (string.IsNullOrEmpty(uniqueId)) return;
 
@@ -236,7 +241,6 @@ namespace IsometricShooter.Core
                 }
                 else if (ammoStore.TryRestore(uniqueId, out savedAmmo, out savedReserveAmmo))
                 {
-                    // Ammo recovered from the per-item store.
                 }
             }
 
@@ -298,6 +302,7 @@ namespace IsometricShooter.Core
         [Server]
         private void EquipSlot(string uniqueId)
         {
+            if (IsPlayerInVehicle()) return;
             if (inventory == null) return;
 
             if (string.IsNullOrEmpty(uniqueId) || string.Equals(equippedItemId, uniqueId))
@@ -436,6 +441,7 @@ namespace IsometricShooter.Core
         [Server]
         public bool ServerTryPickupItem(ItemData data, int amount, int savedAmmo, int savedReserveAmmo, ItemPickup worldPickup)
         {
+            if (IsPlayerInVehicle()) return false;
             if (data == null) return false;
             if (!(data is WeaponData || data is MeleeItemData)) return false;
 

@@ -1,83 +1,122 @@
+using IsometricShooter.Core;
 using UnityEngine;
-using Cinemachine;
 
 namespace IsometricShooter.Player
 {
     public class TopDownCinemachineController : MonoBehaviour
     {
-        [Header("Cinemachine Reference")]
-        [SerializeField] private CinemachineVirtualCamera virtualCamera;
+        [Header("Camera Reference")]
+        [Tooltip("Surulen ana kamera. PlayerController bunu OnStartLocalPlayer'da set eder.")]
+        [SerializeField] private Camera targetCamera;
 
         [Header("Camera Settings")]
+        [Tooltip("Kameranin merkez noktasina gore ofseti (yukseklik ve geri cekilme mesafesi).")]
         [SerializeField] private Vector3 followOffset = new Vector3(0f, 12f, -8f);
+        [Tooltip("ARACTAYKEN kameranin merkez noktasina gore ofseti (yukseklik ve geri cekilme mesafesi).")]
+        [SerializeField] private Vector3 vehicleFollowOffset = new Vector3(0f, 16f, -12f);
+        [Tooltip("Hedefin (player/arac) merkez / fare noktasi etrafinda ekran merkezinden kayabilecegi maksimum mesafe (metre).")]
+        [SerializeField] private float maxAnchorOffset = 5f;
+        [Tooltip("ARACTAYKEN hedefin kayabilecegi maksimum mesafe (metre).")]
+        [SerializeField] private float vehicleMaxAnchorOffset = 8f;
+        [Tooltip("Fare imlecinin ekran kenarina gitmesiyle nisan noktasinin hedef etrafinda kayabilecegi en uzak mesafe (metre).")]
+        [SerializeField] private float maxAimLookDistance = 25f;
+        [Tooltip("ARACTAYKEN fare nisan noktasinin kayabilecegi en uzak mesafe.")]
+        [SerializeField] private float vehicleMaxAimLookDistance = 50f;
+        [Tooltip("Q/E ile yatay kacis donusu hizi (derece/sn).")]
         [SerializeField] private float rotationSpeed = 120f;
 
-        private const float CameraFollowSpeed = 20f;
         private const float LookHeightOffset = 1.5f;
 
         private float currentYaw;
         private bool isLocal;
 
-        private void Awake()
-        {
-            if (virtualCamera == null)
-            {
-                virtualCamera = GetComponentInChildren<CinemachineVirtualCamera>();
-            }
-
-            if (virtualCamera != null)
-            {
-                virtualCamera.gameObject.SetActive(false);
-            }
-        }
-
         public void SetActive(bool isLocalPlayer)
         {
             isLocal = isLocalPlayer;
-
-            if (virtualCamera == null)
-            {
-                virtualCamera = GetComponentInChildren<CinemachineVirtualCamera>();
-            }
-
-            if (!isLocal)
-            {
-                if (virtualCamera != null)
-                {
-                    virtualCamera.gameObject.SetActive(false);
-                }
-                return;
-            }
-
-            if (virtualCamera != null)
-            {
-                virtualCamera.gameObject.SetActive(true);
-
-                virtualCamera.Follow = transform;
-                virtualCamera.LookAt = transform;
-
-                var transposer = virtualCamera.GetCinemachineComponent<CinemachineTransposer>();
-                if (transposer != null)
-                {
-                    transposer.m_BindingMode = CinemachineTransposer.BindingMode.WorldSpace;
-                    transposer.m_FollowOffset = followOffset;
-                }
-            }
         }
+
+        public void SetCamera(Camera camera)
+        {
+            targetCamera = camera;
+        }
+
+        public float CurrentYaw => currentYaw;
 
         private void LateUpdate()
         {
-            if (!isLocal || virtualCamera == null)
+            if (!isLocal || targetCamera == null)
                 return;
 
             HandleCameraRotation();
 
+            bool inVehicle = false;
+            Vector3 targetPosition = GetTargetPosition(ref inVehicle);
+
+            float maxAimLook = inVehicle ? vehicleMaxAimLookDistance : maxAimLookDistance;
+            float maxAnchor = inVehicle ? vehicleMaxAnchorOffset : maxAnchorOffset;
+            Vector3 offset = inVehicle ? vehicleFollowOffset : followOffset;
+
+            Vector3 aimPoint = GetAimPoint(targetPosition, maxAimLook);
+            Vector3 centerPoint = ClampAnchor(aimPoint, targetPosition, maxAnchor);
+
             Quaternion rotation = Quaternion.Euler(0f, currentYaw, 0f);
-            Vector3 targetCameraPosition = transform.position + (rotation * followOffset);
+            Vector3 desiredPosition = centerPoint + (rotation * offset);
 
-            virtualCamera.transform.position = Vector3.Lerp(virtualCamera.transform.position, targetCameraPosition, Time.deltaTime * CameraFollowSpeed);
+            targetCamera.transform.position = desiredPosition;
 
-            virtualCamera.transform.LookAt(transform.position + Vector3.up * LookHeightOffset);
+            Vector3 lookDirection = (centerPoint + Vector3.up * LookHeightOffset) - desiredPosition;
+            if (lookDirection.sqrMagnitude > 0.0001f)
+            {
+                targetCamera.transform.rotation = Quaternion.LookRotation(lookDirection);
+            }
+        }
+
+        private Vector3 GetTargetPosition(ref bool inVehicle)
+        {
+            PlayerController player = GetComponent<PlayerController>();
+            if (player != null)
+            {
+                Vehicle vehicle = player.CurrentVehicle;
+                if (vehicle != null)
+                {
+                    inVehicle = true;
+                    return vehicle.transform.position;
+                }
+            }
+
+            return transform.position;
+        }
+
+        private Vector3 GetAimPoint(Vector3 targetPosition, float maxLookDistance)
+        {
+            Vector3 viewport = targetCamera.ScreenToViewportPoint(Input.mousePosition);
+            viewport.x = Mathf.Clamp01(viewport.x);
+            viewport.y = Mathf.Clamp01(viewport.y);
+
+            float offsetX = (viewport.x - 0.5f) * 2f;
+            float offsetY = (viewport.y - 0.5f) * 2f;
+
+            Quaternion yawRotation = Quaternion.Euler(0f, currentYaw, 0f);
+            Vector3 basisRight = yawRotation * Vector3.right;
+            Vector3 basisForward = yawRotation * Vector3.forward;
+
+            Vector3 aimDirection = basisRight * offsetX + basisForward * offsetY;
+            return targetPosition + (aimDirection * maxLookDistance);
+        }
+
+        private static Vector3 ClampAnchor(Vector3 aimPoint, Vector3 targetPosition, float maxOffset)
+        {
+            Vector3 flat = targetPosition - aimPoint;
+            flat.y = 0f;
+
+            float sqrMagnitude = flat.sqrMagnitude;
+            float maxSqr = maxOffset * maxOffset;
+            if (sqrMagnitude > maxSqr)
+            {
+                flat = flat.normalized * maxOffset;
+            }
+
+            return aimPoint + flat;
         }
 
         private void HandleCameraRotation()
@@ -96,14 +135,6 @@ namespace IsometricShooter.Player
             if (rotationInput != 0f)
             {
                 currentYaw += rotationInput * rotationSpeed * Time.deltaTime;
-
-                var transposer = virtualCamera.GetCinemachineComponent<CinemachineTransposer>();
-                if (transposer != null)
-                {
-                    Quaternion rotation = Quaternion.Euler(0f, currentYaw, 0f);
-                    Vector3 flatOffset = new Vector3(0f, followOffset.y, followOffset.z);
-                    transposer.m_FollowOffset = rotation * flatOffset;
-                }
             }
         }
     }

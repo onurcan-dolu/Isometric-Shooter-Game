@@ -28,6 +28,15 @@ private void Update()
         {
             if (!isLocalPlayer) return;
 
+            PlayerController playerController = GetComponent<PlayerController>();
+            if (playerController != null && playerController.IsInVehicle)
+            {
+                currentTargetIdentity = null;
+                currentInteractable = null;
+                SetPrompt("");
+                return;
+            }
+
             if (Health.IsDead(gameObject))
             {
                 currentTargetIdentity = null;

@@ -4,10 +4,6 @@ using Mirror;
 
 namespace IsometricShooter.Core
 {
-    /// <summary>
-    /// Server-side melee swing damage window. Frame-advanced by the caller so no
-    /// coroutine is needed; keeps the hit window logic isolated and testable.
-    /// </summary>
     public sealed class MeleeExecution
     {
         public bool IsActive { get; private set; }

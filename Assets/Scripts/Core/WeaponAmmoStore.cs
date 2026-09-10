@@ -2,10 +2,6 @@ using System.Collections.Generic;
 
 namespace IsometricShooter.Core
 {
-    /// <summary>
-    /// Per-inventory-item ammo persistence. Magazine/reserve ammo is keyed by the
-    /// inventory slot's uniqueId so switching weapons preserves their ammo.
-    /// </summary>
     public sealed class WeaponAmmoStore
     {
         private struct AmmoEntry

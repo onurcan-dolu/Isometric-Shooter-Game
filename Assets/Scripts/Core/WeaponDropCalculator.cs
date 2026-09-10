@@ -2,9 +2,6 @@ using UnityEngine;
 
 namespace IsometricShooter.Core
 {
-    /// <summary>
-    /// Pure drop launch math: where a dropped pickup spawns and how it is thrown.
-    /// </summary>
     public static class WeaponDropCalculator
     {
         private const float Gravity = 9.81f;
